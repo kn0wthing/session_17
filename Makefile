@@ -1,4 +1,4 @@
-.PHONY: clean lint format test install dev
+.PHONY: clean lint format install dev run train
 
 clean:
 	rm -rf build/
@@ -8,21 +8,30 @@ clean:
 	find . -type f -name "*.pyc" -delete
 
 lint:
-	flake8 src tests
-	mypy src tests
-	black --check src tests
-	isort --check-only src tests
+	flake8 src
+	mypy src
+	black --check src
+	isort --check-only src
 
 format:
-	black src tests
-	isort src tests
-
-test:
-	pytest
+	black src
+	isort src
 
 install:
 	pip install -r requirements.txt
 	pip install -e .
 
 dev: install
-	pip install -e ".[dev]" 
+	pip install -e ".[dev]"
+
+run:
+	python src/app.py
+
+train:
+	@echo "Usage: make train STYLE=<style_name> [STEPS=<steps>] [LR=<learning_rate>]"
+	@echo "Example: make train STYLE=dhoni STEPS=3000 LR=1e-4"
+	@if [ -n "$(STYLE)" ]; then \
+		STEPS=$${STEPS:-3000}; \
+		LR=$${LR:-1e-4}; \
+		python src/train_style.py $(STYLE) --steps $$STEPS --lr $$LR; \
+	fi 

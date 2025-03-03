@@ -51,4 +51,12 @@ venv.bak/
 *.swo
 
 # OS specific files
-.DS_Store 
+.DS_Store
+
+# Project specific
+style_embeddings/
+*.bin
+*.pt
+*.pth
+*.ckpt
+Outputs/ 

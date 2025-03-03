@@ -17,19 +17,29 @@ class StyleTransfer:
         self.pipeline = None
         self.style_tokens = []
         self.styles = [
-            "dhoni",
-            "mickey_mouse",
-            "balloon",
-            "lion_king",
-            "rose_flower"
+            "watercolor",
+            "cyberpunk",
+            "vangogh", 
+            "ukiyoe",
+            "retro"
         ]
         self.style_names = [
-            "Dhoni Style",
-            "Mickey Mouse Style",
-            "Balloon Style",
-            "Lion King Style",
-            "Rose Flower Style"
+            "Watercolor Style",
+            "Cyberpunk Style",
+            "Van Gogh Style",
+            "Ukiyo-e Style",
+            "Retro Style"
         ]
+        
+        # Seeds for reproducibility
+        self.style_seeds = {
+            "watercolor": 42,
+            "cyberpunk": 123,
+            "vangogh": 456,
+            "ukiyoe": 789,
+            "retro": 1024
+        }
+        
         self.is_initialized = False
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         if self.device == "cpu":
@@ -49,18 +59,22 @@ class StyleTransfer:
             )
             self.pipeline = self.pipeline.to(self.device)
             
-            # Load style embeddings from current directory
-            current_dir = Path(__file__).parent.parent
+            # Load style embeddings from style_embeddings directory
+            style_dir = Path(__file__).parent.parent.parent / "style_embeddings"
             
             for style, style_name in zip(self.styles, self.style_names):
-                style_path = current_dir / f"{style}.bin"
+                style_path = style_dir / f"{style}.bin"
                 if not style_path.exists():
-                    raise FileNotFoundError(f"Style embedding not found: {style_path}")
+                    print(f"Warning: Style embedding not found: {style_path}")
+                    continue
                 
                 print(f"Loading style: {style_name}")
                 token = self._load_style_embedding(str(style_path))
                 self.style_tokens.append(token)
                 print(f"✓ Loaded style: {style_name}")
+            
+            if not self.style_tokens:
+                raise FileNotFoundError("No style embeddings could be loaded. Please train some styles first.")
             
             self.is_initialized = True
             print(f"Model initialization complete! Using device: {self.device}")
@@ -112,10 +126,11 @@ class StyleTransfer:
             style_idx = self.style_names.index(selected_style)
             
             # Generate single image with selected style
-            styled_prompt = f"{prompt}, {self.style_tokens[style_idx]}"
+            styled_prompt = prompt
             
             # Set seed for reproducibility
-            generator_seed = 42
+            style_key = self.styles[style_idx]
+            generator_seed = self.style_seeds.get(style_key, 42)
             torch.manual_seed(generator_seed)
             if self.device == "cuda":
                 torch.cuda.manual_seed(generator_seed)
@@ -129,13 +144,13 @@ class StyleTransfer:
                     generator=torch.Generator(self.device).manual_seed(generator_seed)
                 ).images[0]
             
-            # Generate same image with color enhancement
+            # Generate same image with harmony enhancement
             with autocast(self.device):
                 enhanced_image = self.pipeline(
                     styled_prompt,
                     num_inference_steps=50,
                     guidance_scale=7.5,
-                    callback=self._enhance_colors,
+                    callback=self._harmony_loss,
                     callback_steps=5,
                     generator=torch.Generator(self.device).manual_seed(generator_seed)
                 ).images[0]
@@ -146,15 +161,16 @@ class StyleTransfer:
             print(f"Error in generate_artwork: {e}")
             raise
 
-    def _enhance_colors(self, i, t, latents):
+    def _harmony_loss(self, i, t, latents):
+        """Advanced Harmony Loss for enhanced color relationships."""
         if i % 5 == 0:  # Apply enhancement every 5 steps
             try:
                 # Create a copy that requires gradients
                 latents_copy = latents.detach().clone()
                 latents_copy.requires_grad_(True)
                 
-                # Compute color distance loss
-                loss = self._calculate_color_distance(latents_copy)
+                # Compute harmony loss
+                loss = self._calculate_harmony_score(latents_copy)
                 
                 # Compute gradients
                 if loss.requires_grad:
@@ -167,14 +183,15 @@ class StyleTransfer:
                     
                     if grads is not None:
                         # Apply gradients to original latents
-                        return latents - 0.1 * grads.detach()
+                        return latents - 0.15 * grads.detach()
             
             except Exception as e:
-                print(f"Error in color enhancement: {e}")
+                print(f"Error in harmony enhancement: {e}")
             
         return latents
 
-    def _calculate_color_distance(self, images):
+    def _calculate_harmony_score(self, images):
+        """Calculate harmony score based on multiple aesthetic factors."""
         # Ensure we're working with gradients
         if not images.requires_grad:
             images = images.detach().requires_grad_(True)
@@ -182,14 +199,45 @@ class StyleTransfer:
         # Convert to float32 and normalize
         images = images.float() / 2 + 0.5
         
-        # Get RGB channels
+        # Extract color channels
         red = images[:,0:1]
         green = images[:,1:2]
         blue = images[:,2:3]
         
-        # Calculate color distances using L2 norm
-        rg_distance = ((red - green) ** 2).mean()
-        rb_distance = ((red - blue) ** 2).mean()
-        gb_distance = ((green - blue) ** 2).mean()
+        # YUV color space components (closer to human perception)
+        y = 0.299 * red + 0.587 * green + 0.114 * blue
+        u = 0.492 * (blue - y)
+        v = 0.877 * (red - y)
         
-        return (rg_distance + rb_distance + gb_distance) * 100  # Scale up the loss
+        # Complementary color harmony score
+        color_harmony = ((u.pow(2) + v.pow(2)).sqrt() * 3.0).mean()
+        
+        # Luminance harmony - balanced distribution of lights and darks
+        lum_mean = y.mean()
+        lum_std = y.std()
+        lum_harmony = (
+            torch.abs(lum_mean - 0.5) * 0.5 + 
+            torch.exp(-((lum_std - 0.2).pow(2) * 10))
+        )
+        
+        # Focal contrast - areas of high local contrast
+        local_mean = torch.nn.functional.avg_pool2d(y, kernel_size=3, stride=1, padding=1)
+        local_var = torch.nn.functional.avg_pool2d(y.pow(2), kernel_size=3, stride=1, padding=1) - local_mean.pow(2)
+        local_contrast = local_var.sqrt().mean() * 5.0
+        
+        # Edge coherence
+        dx = y[:,:,:,1:] - y[:,:,:,:-1]
+        dy = y[:,:,1:,:] - y[:,:,:-1,:]
+        
+        # Edge magnitude (where gradients overlap)
+        edge_magnitude = (dx.pow(2)[:,:,:,:-1] + dy.pow(2)[:,:,:-1,:]).sqrt().mean() * 3.0
+        
+        # Combine with weights
+        harmony_score = (
+            color_harmony * 2.0 +    # Color relationships
+            lum_harmony * 1.0 +      # Luminance balance
+            local_contrast * 1.5 +   # Visual interest through contrast
+            edge_magnitude * 0.8     # Edge aesthetics
+        )
+        
+        return harmony_score

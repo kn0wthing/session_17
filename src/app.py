@@ -1,4 +1,5 @@
 import streamlit as st
+import torch
 from utils.style_generator import StyleTransfer
 from utils.ui_components import (
     setup_page_config,
@@ -17,9 +18,14 @@ render_header()
 
 # Initialize session state
 if 'generator' not in st.session_state:
-    st.session_state.generator = StyleTransfer.get_instance()
-    if not st.session_state.generator.is_initialized:
-        st.session_state.generator.initialize_pipeline()
+    try:
+        st.session_state.generator = StyleTransfer.get_instance()
+        if not st.session_state.generator.is_initialized:
+            with st.spinner("Initializing the model..."):
+                st.session_state.generator.initialize_pipeline()
+    except Exception as e:
+        st.error(f"Error initializing the model: {str(e)}")
+        st.stop()
 
 # Render controls and handle user input
 prompt, selected_style = render_controls(st.session_state.generator.style_names)
@@ -28,13 +34,19 @@ if st.sidebar.button("🚀 Generate Artwork", use_container_width=True):
     if prompt:
         try:
             with st.spinner("Generating your artwork..."):
-                base_image, enhanced_image = st.session_state.generator.generate_artwork(prompt, selected_style)
+                # Add style token to prompt
+                style_idx = st.session_state.generator.style_names.index(selected_style)
+                style_token = st.session_state.generator.style_tokens[style_idx]
+                full_prompt = f"{prompt}, {style_token}"
+                
+                base_image, enhanced_image = st.session_state.generator.generate_artwork(full_prompt, selected_style)
                 
                 # Store images in session state
                 st.session_state.base_image = base_image
                 st.session_state.enhanced_image = enhanced_image
         except Exception as e:
-            st.error(f"Error: {str(e)}")
+            st.error(f"Error generating artwork: {str(e)}")
+            st.error("Please try again with a different prompt or check if the model is properly initialized.")
     else:
         st.warning("Please enter a prompt first!")
 

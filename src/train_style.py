@@ -22,8 +22,14 @@ def train_style(
     learning_rate=1e-4,
     train_batch_size=1,
     gradient_accumulation_steps=4,
-    output_dir="style_embeddings"
+    output_dir="style_embeddings",
+    seed=42
 ):
+    # Set seed for reproducibility
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+    
     # Initialize accelerator
     accelerator = Accelerator(
         gradient_accumulation_steps=gradient_accumulation_steps,
@@ -32,6 +38,7 @@ def train_style(
     
     device = accelerator.device
     print(f"Using device: {device}")
+    print(f"Training style: {style_name} with seed: {seed}")
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -55,13 +62,20 @@ def train_style(
     # Move text encoder to device
     text_encoder = text_encoder.to(device)
     
-    # Create image projection layer
     # Load and process training images
     train_images = []
     for image_path in image_paths:
-        image = Image.open(image_path).convert('RGB')
-        image = image.resize((512, 512))
-        train_images.append(np.array(image))
+        try:
+            image = Image.open(image_path).convert('RGB')
+            image = image.resize((512, 512))
+            train_images.append(np.array(image))
+        except Exception as e:
+            print(f"Error loading image {image_path}: {e}")
+    
+    if len(train_images) == 0:
+        raise ValueError("No valid training images found")
+    
+    print(f"Loaded {len(train_images)} training images")
     
     train_images = torch.tensor(np.stack(train_images)).permute(0, 3, 1, 2) / 255.0
     train_images = train_images.to(device, dtype=torch.float32)
@@ -82,13 +96,24 @@ def train_style(
     
     optimizer = torch.optim.AdamW(params_to_optimize)
     
+    # Learning rate scheduler
+    lr_scheduler = get_scheduler(
+        "cosine",
+        optimizer=optimizer,
+        num_warmup_steps=int(num_training_steps * 0.1),
+        num_training_steps=num_training_steps
+    )
+    
     # Prepare everything with accelerator
-    text_encoder, image_projection, optimizer = accelerator.prepare(
-        text_encoder, image_projection, optimizer
+    text_encoder, image_projection, optimizer, lr_scheduler = accelerator.prepare(
+        text_encoder, image_projection, optimizer, lr_scheduler
     )
     
     # Training loop
     progress_bar = tqdm.tqdm(range(num_training_steps), desc="Training")
+    best_loss = float('inf')
+    best_step = 0
+    
     for step in range(num_training_steps):
         text_encoder.train()
         
@@ -101,11 +126,17 @@ def train_style(
             
             # Update weights
             optimizer.step()
+            lr_scheduler.step()
             optimizer.zero_grad()
+        
+        # Track best model
+        if loss.item() < best_loss:
+            best_loss = loss.item()
+            best_step = step
         
         # Log progress
         if step % 100 == 0 or step == num_training_steps - 1:
-            print(f"Step {step}: Loss {loss.item()}")
+            print(f"Step {step}: Loss {loss.item():.6f} | Best: {best_loss:.6f} at step {best_step}")
         
         progress_bar.update(1)
     
@@ -126,6 +157,9 @@ def train_style(
     output_path = Path(output_dir) / f"{style_name}.bin"
     torch.save(learned_embeds_dict, output_path)
     print(f"Saved style embedding to {output_path}")
+    print(f"Final loss: {loss.item():.6f} | Best loss: {best_loss:.6f} at step {best_step}")
+    
+    return output_path
 
 def train_batch(text_encoder, images, placeholder_token, tokenizer, image_projection, device):
     # Create positive and negative prompts
@@ -188,17 +222,18 @@ def train_batch(text_encoder, images, placeholder_token, tokenizer, image_projec
 # Example usage
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a specific style for Stable Diffusion')
-    parser.add_argument('style_name', type=str, help='Name of the style to train (e.g., dhoni, mickey_mouse, balloon, lion_king, rose_flower)')
+    parser.add_argument('style_name', type=str, help='Name of the style to train (e.g., watercolor, cyberpunk, vangogh, ukiyoe, retro)')
     parser.add_argument('--steps', type=int, default=3000, help='Number of training steps')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     args = parser.parse_args()
     
     styles_to_train = {
-        "dhoni": ["training_images/dhoni/*.jpg", "training_images/dhoni/*.png"],
-        "mickey_mouse": ["training_images/mickey_mouse/*.jpg", "training_images/mickey_mouse/*.png"],
-        "balloon": ["training_images/balloon/*.jpg", "training_images/balloon/*.png"],
-        "lion_king": ["training_images/lion_king/*.jpg", "training_images/lion_king/*.png"],
-        "rose_flower": ["training_images/rose_flower/*.jpg", "training_images/rose_flower/*.png"]
+        "watercolor": ["style_images/watercolor/*.jpg", "style_images/watercolor/*.png"],
+        "cyberpunk": ["style_images/cyberpunk/*.jpg", "style_images/cyberpunk/*.png"],
+        "vangogh": ["style_images/vangogh/*.jpg", "style_images/vangogh/*.png"],
+        "ukiyoe": ["style_images/ukiyoe/*.jpg", "style_images/ukiyoe/*.png"],
+        "retro": ["style_images/retro/*.jpg", "style_images/retro/*.png"]
     }
     
     if args.style_name not in styles_to_train:
@@ -221,5 +256,6 @@ if __name__ == "__main__":
         image_paths=all_image_paths,
         placeholder_token=f"<{args.style_name}-style>",
         num_training_steps=args.steps,
-        learning_rate=args.lr
+        learning_rate=args.lr,
+        seed=args.seed
     )

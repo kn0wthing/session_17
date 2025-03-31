@@ -1020,6 +1020,124 @@ class GuidedDiffusion:
         
         return noop_image, edge_image
 
+    def compare_noop_vs_subject_changing(
+        self,
+        prompt,
+        target_subject,
+        source_subject=None,
+        height=512,
+        width=512,
+        num_inference_steps=150,
+        guidance_scale=7.5,
+        subject_change_scale=2000,
+        step_size_factor=10.0,
+        seed=42,
+        output_dir="noop_vs_subject_change_comparison",
+        save_comparison=True
+    ):
+        """
+        Generate and compare images with no-op loss and subject changing loss.
+        This allows seeing the exact difference the subject changing makes compared to standard generation.
+        
+        Args:
+            prompt: The text prompt to use for generation
+            target_subject: The subject to change to
+            source_subject: The subject to change from (will be auto-detected if None)
+            height/width: Image dimensions
+            num_inference_steps: Number of diffusion steps
+            guidance_scale: CFG scale
+            subject_change_scale: Strength of subject changing effect
+            step_size_factor: How large the gradient steps should be
+            seed: Random seed for reproducibility
+            output_dir: Where to save comparison
+            save_comparison: Whether to save comparison image
+            
+        Returns:
+            Tuple of (noop_image, subject_changed_image)
+        """
+        import os
+        # Create main output directory
+        if save_comparison and output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            
+        # Create subdirectories for each generation type
+        noop_dir = f"{output_dir}/noop" if save_comparison else None
+        subject_dir = f"{output_dir}/subject_change" if save_comparison else None
+        
+        if noop_dir:
+            os.makedirs(noop_dir, exist_ok=True)
+        if subject_dir:
+            os.makedirs(subject_dir, exist_ok=True)
+            
+        # Auto-detect source subject if not provided
+        if source_subject is None:
+            # Simple auto-detection from prompt
+            prompt_parts = prompt.lower().replace(',', ' ').split()
+            common_subjects = ['dog', 'cat', 'person', 'man', 'woman', 'car', 'house', 
+                          'bird', 'tree', 'mountain', 'river', 'ocean', 'building']
+            
+            for subject in common_subjects:
+                if subject in prompt_parts:
+                    source_subject = subject
+                    print(f"Auto-detected source subject: '{source_subject}'")
+                    break
+                    
+        print(f"Generating image with NO-OP loss...")
+        # Generate with no-op loss (follows same computation path but without actual effects)
+        noop_image = self.generate_with_noop(
+            prompt=prompt,
+            height=height,
+            width=width,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            seed=seed,
+            output_dir=noop_dir,
+            save_steps=False
+        )
+        
+        print(f"Generating image with SUBJECT CHANGING from '{source_subject}' to '{target_subject}'...")
+        # Generate with subject changing loss
+        subject_image = self.generate_with_subject_changing(
+            prompt=prompt,
+            target_subject=target_subject,
+            source_subject=source_subject,
+            height=height,
+            width=width,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            subject_change_scale=subject_change_scale,
+            step_size_factor=step_size_factor,
+            seed=seed,
+            output_dir=subject_dir,
+            save_steps=False
+        )
+        
+        # Create side-by-side comparison
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+        
+        ax1.imshow(np.array(noop_image))
+        ax1.set_title(f"Original: '{prompt}'", fontsize=14)
+        ax1.axis('off')
+        
+        ax2.imshow(np.array(subject_image))
+        ax2.set_title(f"Subject Changed: '{source_subject}' → '{target_subject}'", fontsize=14)
+        ax2.axis('off')
+        
+        plt.suptitle(f"Subject Changing Comparison", fontsize=16)
+        plt.tight_layout()
+        plt.show()
+        
+        # Save comparison image
+        if save_comparison:
+            comparison = Image.new('RGB', (noop_image.width + subject_image.width, noop_image.height))
+            comparison.paste(noop_image, (0, 0))
+            comparison.paste(subject_image, (noop_image.width, 0))
+            comparison_filename = f"{output_dir}/comparison.png"
+            comparison.save(comparison_filename)
+            print(f"Comparison saved to {comparison_filename}")
+        
+        return noop_image, subject_image
+
 """## Run the demos
 
 Let's demonstrate each of the loss functions with examples:
@@ -1348,6 +1466,35 @@ noop_image, edge_image = diffusion.compare_noop_vs_edge(
     num_inference_steps=steps,
     seed=seed,
     output_dir="noop_vs_edge_comparison"
+)
+
+"""## No-Op vs Subject Changing Comparison
+
+Run this cell to see the difference between standard generation and subject changing.
+"""
+
+# @title Run No-Op vs Subject Changing Comparison
+prompt = "A golden retriever sitting in a garden" # @param {type:"string"}
+target_subject = "wolf" # @param {type:"string"}
+source_subject = "" # @param {type:"string"}
+steps = 100 # @param {type:"slider", min:50, max:200, step:10}
+subject_change_scale = 2000 # @param {type:"slider", min:500, max:3000, step:100}
+step_size_factor = 10.0 # @param {type:"slider", min:1.0, max:20.0, step:0.5}
+seed = 42 # @param {type:"integer"}
+
+# Initialize the model
+diffusion = GuidedDiffusion()
+
+# Generate and compare images
+noop_image, subject_image = diffusion.compare_noop_vs_subject_changing(
+    prompt=prompt,
+    target_subject=target_subject,
+    source_subject=source_subject if source_subject else None,
+    num_inference_steps=steps,
+    subject_change_scale=subject_change_scale,
+    step_size_factor=step_size_factor,
+    seed=seed,
+    output_dir="noop_vs_subject_change_comparison"
 )
 
 """## Conclusion

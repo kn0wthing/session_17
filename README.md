@@ -1,94 +1,70 @@
-# AI Style Transfer Studio
+# Guided Diffusion with Custom Loss Functions
 
-A powerful toolkit for generating artwork in various artistic styles using AI. This project allows you to train custom artistic styles and generate new artwork based on text prompts.
+This project demonstrates how to use custom loss functions with Stable Diffusion to guide image generation. It includes implementations for:
 
-## Features
+1. **Edge Sharpening Loss** - Makes the edges in the generated image more defined and crisp
+2. **Subject Changing Loss** - Gradually shifts the subject of an image to a different concept
+3. **Blue Pixel Loss** - A simple example that increases the blue component in generated images
 
-- Generate artwork in 5 different artistic styles:
-  - **Watercolor**: Soft, flowing, painterly aesthetic
-  - **Cyberpunk**: Neon, futuristic, high-tech visual elements
-  - **Van Gogh**: Swirling brush strokes, vibrant colors
-  - **Ukiyo-e**: Traditional Japanese woodblock print aesthetic
-  - **Retro**: 80s/90s nostalgic color palette and design
+## Requirements
 
-- Custom "Harmony Loss" function that enhances:
-  - Color harmony relationships based on color theory
-  - Luminance balancing for better light distribution
-  - Focal contrast enhancement for areas of interest
-  - Edge coherence for cleaner transitions
+Install the required dependencies:
 
-## Installation
-
-1. Clone this repository:
 ```bash
-git clone https://github.com/yourusername/ai-style-transfer-studio.git
-cd ai-style-transfer-studio
-```
-
-2. Install the required dependencies:
-```bash
-pip install -r requirements.txt
+pip install torch torchvision torchaudio
+pip install diffusers transformers accelerate
+pip install Pillow numpy tqdm
 ```
 
 ## Usage
 
-### 1. Training Custom Style Embeddings
-
-The repository comes with synthetic images for training. You can train style embeddings for all available styles with:
+The main script `src/generate_images.py` provides a command-line interface for generating images with different loss functions:
 
 ```bash
-python train_all_styles.py
+# Generate an image with edge sharpening
+python src/generate_images.py --prompt "Portrait of a woman wearing a red hat" --mode edge
+
+# Generate an image with subject changing
+python src/generate_images.py --prompt "A golden retriever" --mode subject --target_subject "A wolf in a forest"
+
+# Generate an image with blue emphasis
+python src/generate_images.py --prompt "A sunset over mountains" --mode blue
 ```
 
-Or train an individual style with:
+### Command-line arguments
 
-```bash
-python src/train_style.py watercolor --steps 3000 --lr 1e-4 --seed 42
-```
+- `--prompt`: Text prompt for image generation
+- `--mode`: Loss function to use: "edge", "subject", or "blue"
+- `--target_subject`: Target subject for subject changing mode
+- `--steps`: Number of diffusion steps (default: 50)
+- `--scale`: Scale for the loss function (defaults depend on mode)
+- `--output_dir`: Directory to save intermediate results
+- `--seed`: Random seed for reproducibility (default: 42)
+- `--model_id`: Hugging Face model ID to use (default: "runwayml/stable-diffusion-v1-5")
 
-### 2. Generating Artwork
+## How It Works
 
-Generate an image using a specific style:
+This project uses the concept of classifier-free guidance combined with custom loss functions applied in the latent space during the diffusion process:
 
-```bash
-python test_style_transfer.py "a serene mountain landscape with a lake" --style watercolor
-```
-
-Generate a comparison of all available styles:
-
-```bash
-python test_style_transfer.py "a portrait of a woman in traditional clothing" --compare
-```
-
-### 3. Project Structure
-
-- `src/train_style.py`: Script for training style embeddings
-- `src/generate_art.py`: Core module for generating artwork
-- `style_images/`: Contains training images organized by style
-- `style_embeddings/`: Contains trained style embeddings
-- `outputs/`: Generated artwork will be saved here
-
-## How the Harmony Loss Works
-
-The Harmony Loss function enhances the aesthetic quality of generated images through:
-
-1. **Color Harmony in YUV Space**: Works in a color space closer to human perception to optimize complementary color relationships.
-
-2. **Luminance Balancing**: Creates a balanced distribution of lights and darks, ensuring proper tonal variation.
-
-3. **Focal Contrast Enhancement**: Identifies important areas of the image and enhances their contrast for better visual impact.
-
-4. **Edge Coherence**: Improves the clarity of edges and boundaries while reducing noise.
+1. At each diffusion step, we predict the denoised image (x0) based on the current noisy latents
+2. We apply our custom loss function to this predicted image
+3. We calculate the gradient of the loss with respect to the latents
+4. We update the latents to reduce this loss, steering the generation process
 
 ## Examples
 
-Generated examples will appear in the `outputs` directory after running the generation scripts.
+### Edge Sharpening
 
-## License
+The edge sharpening loss uses Sobel filters to detect edges and maximizes their magnitude. This encourages the diffusion process to generate images with more defined edges.
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+### Subject Changing
 
-## Acknowledgements
+The subject changing loss uses CLIP to compute the similarity between the generated image and two text prompts: the original prompt and the target subject. It then steers the generation to maximize similarity with the target while minimizing similarity with the original.
 
-- Based on Stable Diffusion by Runway and Stability AI
-- Implements techniques inspired by color theory and art composition
+### Blue Pixel Emphasis
+
+A simple example loss that promotes pixels with high blue channel values, resulting in images with a blue tint.
+
+## Customization
+
+You can create your own custom loss functions by extending the `GuidedDiffusion` class in `src/guided_diffusion.py`. Implement a new loss function and a corresponding generation method, following the patterns in the existing code. 

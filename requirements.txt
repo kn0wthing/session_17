@@ -1,11 +1,8 @@
 torch>=1.10.0
 torchvision>=0.11.0
-diffusers>=0.11.0
-transformers>=4.22.0
-accelerate>=0.12.0
-pillow>=9.0.0
-tqdm>=4.64.0
+diffusers>=0.14.0
+transformers>=4.25.1
+accelerate>=0.16.0
+Pillow>=9.0.0
 numpy>=1.22.0
-requests>=2.27.0
-matplotlib>=3.5.0
-opencv-python>=4.5.0
+tqdm>=4.62.0 

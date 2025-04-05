@@ -59,4 +59,5 @@ style_embeddings/
 *.pt
 *.pth
 *.ckpt
+*.zip
 Outputs/ 
